@@ -20,7 +20,6 @@ const (
 
 var defaultMaxWorkersCount = runtime.NumCPU()
 var defaultMaxIdleWorkerDuration = 8 * time.Second
-var defaultWaitingTaskBufferSize = defaultMaxWorkersCount * 16
 var workerChanCap = func() int {
 	// Use blocking worker if GOMAXPROCS=1.
 	// This immediately switches Submit to Exec, which results
