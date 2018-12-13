@@ -47,3 +47,20 @@ p.Submit(...)
 p.Stop()
 
 ```
+
+## Benchmarks
+On my macOS High Sierra: 2.5 GHz Intel Core i7, 4 Core
+
+```go 
+goos: darwin
+goarch: amd64
+BenchmarkWorkerPool_SubmitOneWorkerNoIdleOneCPU-8          	     100	  36199276 ns/op	      13 B/op	       1 allocs/op
+BenchmarkWorkerPool_SubmitOneWorkerNoIdleMoreCPU-8         	  200000	     10273 ns/op	       8 B/op	       1 allocs/op
+BenchmarkWorkerPool_Submit16WorkerNoIdleOneCPU-8           	   50000	     34704 ns/op	      13 B/op	       1 allocs/op
+BenchmarkWorkerPool_Submit1024WorkerNoIdleOneCPU-8         	   50000	     33809 ns/op	      13 B/op	       1 allocs/op
+BenchmarkWorkerPool_Submit16WorkerNoIdleMoreCPU-8          	 3000000	       543 ns/op	       8 B/op	       1 allocs/op
+BenchmarkWorkerPool_Submit1024WorkerNoIdleMoreCPU-8        	 3000000	       535 ns/op	       8 B/op	       1 allocs/op
+BenchmarkWorkerPool_SubmitOneWorkerDefaultIdleMoreCPU-8    	  100000	     10824 ns/op	       8 B/op	       1 allocs/op
+BenchmarkWorkerPool_Submit1024WorkerDefaultIdleMoreCPU-8   	 3000000	       589 ns/op	       8 B/op	       1 allocs/op
+PASS
+```
