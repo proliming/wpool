@@ -3,7 +3,8 @@
 package wpool
 
 import (
-	"fmt"
+	"math"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -13,27 +14,92 @@ type myTask struct {
 }
 
 func (t *myTask) Run() error {
-	time.Sleep(1 * time.Second)
-	fmt.Printf("%d task done !\n", t.num)
 	return nil
 }
 
-func (t *myTask) Stop() {
-	//fmt.Printf("stopping task %d", t.num)
-}
-
 func TestWorkerPool_Submit(t *testing.T) {
-	p := New()
-
+	//p := New()
+	p := NewWith(directExecutor, 2, 1*time.Second, BlockWhenNoWorker)
 	p.Start()
-
-	ch := time.Tick(500 * time.Millisecond)
-	i := 0
-	for t := range ch {
-		_ = t
-		i++
+	for i := 0; i < 100; i++ {
 		p.Submit(&myTask{i})
 	}
+	p.WaitAndStop()
 	//p.Stop()
+}
 
+func BenchmarkWorkerPool_SubmitOneWorkerNoIdleOneCPU(b *testing.B) {
+	n := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(n)
+	p := NewWith(directExecutor, 1, math.MaxInt64*time.Nanosecond, BlockWhenNoWorker)
+	b.ResetTimer()
+	b.ReportAllocs()
+	p.Start()
+	for i := 0; i < b.N; i++ {
+		p.Submit(&myTask{num: i})
+	}
+	p.WaitAndStop()
+}
+func BenchmarkWorkerPool_SubmitOneWorkerNoIdleMoreCPU(b *testing.B) {
+	n := runtime.GOMAXPROCS(runtime.NumCPU())
+	defer runtime.GOMAXPROCS(n)
+	p := NewWith(directExecutor, 1, math.MaxInt64*time.Nanosecond, BlockWhenNoWorker)
+	b.ResetTimer()
+	b.ReportAllocs()
+	p.Start()
+	for i := 0; i < b.N; i++ {
+		p.Submit(&myTask{num: i})
+	}
+	p.WaitAndStop()
+}
+
+func BenchmarkWorkerPool_Submit16WorkerNoIdleOneCPU(b *testing.B) {
+	n := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(n)
+	p := NewWith(directExecutor, 1024, math.MaxInt64*time.Nanosecond, BlockWhenNoWorker)
+	b.ResetTimer()
+	b.ReportAllocs()
+	p.Start()
+	for i := 0; i < b.N; i++ {
+		p.Submit(&myTask{num: i})
+	}
+	p.WaitAndStop()
+}
+func BenchmarkWorkerPool_Submit1024WorkerNoIdleOneCPU(b *testing.B) {
+	n := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(n)
+	p := NewWith(directExecutor, 1024, math.MaxInt64*time.Nanosecond, BlockWhenNoWorker)
+	b.ResetTimer()
+	b.ReportAllocs()
+	p.Start()
+	for i := 0; i < b.N; i++ {
+		p.Submit(&myTask{num: i})
+	}
+	p.WaitAndStop()
+}
+
+func BenchmarkWorkerPool_Submit16WorkerNoIdleMoreCPU(b *testing.B) {
+	n := runtime.GOMAXPROCS(runtime.NumCPU())
+	defer runtime.GOMAXPROCS(n)
+	p := NewWith(directExecutor, 1024, math.MaxInt64*time.Nanosecond, BlockWhenNoWorker)
+	b.ResetTimer()
+	b.ReportAllocs()
+	p.Start()
+	for i := 0; i < b.N; i++ {
+		p.Submit(&myTask{num: i})
+	}
+	p.WaitAndStop()
+}
+
+func BenchmarkWorkerPool_Submit1024WorkerNoIdleMoreCPU(b *testing.B) {
+	n := runtime.GOMAXPROCS(runtime.NumCPU())
+	defer runtime.GOMAXPROCS(n)
+	p := NewWith(directExecutor, 1024, math.MaxInt64*time.Nanosecond, BlockWhenNoWorker)
+	b.ResetTimer()
+	b.ReportAllocs()
+	p.Start()
+	for i := 0; i < b.N; i++ {
+		p.Submit(&myTask{num: i})
+	}
+	p.WaitAndStop()
 }

@@ -1,26 +1,26 @@
-// Description:
 // Author: liming.one@bytedance.com
 package wpool
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
 	"time"
 )
 
-// A WorkerState represents the state of a Task
-type WorkerState int
+var errNoWorkerAvailable = errors.New("no worker available for now")
+
+type RejectedStrategy int
 
 const (
-	StateNew WorkerState = iota
-	StateRunning
-	StateStopped
+	BlockWhenNoWorker RejectedStrategy = iota
+	RejectWhenNoWorker
 )
 
-var DefaultMaxWorkersCount = runtime.NumCPU()
-var DefaultMaxIdleWorkerDuration = 8 * time.Second
-
+var defaultMaxWorkersCount = runtime.NumCPU()
+var defaultMaxIdleWorkerDuration = 8 * time.Second
+var defaultWaitingTaskBufferSize = defaultMaxWorkersCount * 16
 var workerChanCap = func() int {
 	// Use blocking worker if GOMAXPROCS=1.
 	// This immediately switches Submit to Exec, which results
@@ -44,12 +44,6 @@ func directExecutor(r Task) error {
 // A worker performs some work
 type Task interface {
 	Run() error
-	Stop()
-}
-
-type TaskListener func(Task, WorkerState)
-
-func noOpTaskListener(t Task, stat WorkerState) {
 }
 
 // workerPool serves incoming Task via a pool of workers
@@ -58,50 +52,53 @@ func noOpTaskListener(t Task, stat WorkerState) {
 //
 // Such a scheme keeps CPU caches hot (in theory).
 type workerPool struct {
-	Exec            Executor
-	MaxWorkersCount int
-
-	LogAllErrors bool
-
-	MaxIdleWorkerDuration time.Duration
-
-	lock         sync.Mutex
-	workersCount int
-	mustStop     bool
-
-	availableWorkers []*worker
-
-	stopCh chan struct{}
-
-	workersPool sync.Pool
-
-	notifyStateChange TaskListener
+	rejectedStrategy      RejectedStrategy
+	executorFunc          Executor // executor to exec Tasks
+	maxWorkersCount       int
+	logAllErrors          bool
+	maxIdleWorkerDuration time.Duration
+	lock                  sync.Mutex
+	workersCount          int
+	mustStop              bool
+	availableWorkers      []*worker // holder for available workers
+	stopCh                chan struct{}
+	innerWorkersPool      sync.Pool // inner pool
+	wg                    sync.WaitGroup
 }
 
+// Create a default worker pool
 func New() *workerPool {
-	return NewWith(directExecutor, DefaultMaxWorkersCount, DefaultMaxIdleWorkerDuration, noOpTaskListener)
+	return NewWith(directExecutor, defaultMaxWorkersCount, defaultMaxIdleWorkerDuration, BlockWhenNoWorker)
 }
 
-func NewWith(executor Executor, maxWorkers int, maxIdleTime time.Duration, listener TaskListener) *workerPool {
+func NewWith(executor Executor, maxWorkers int, maxIdleTime time.Duration, rejectStrategy RejectedStrategy) *workerPool {
+	if executor == nil {
+		executor = directExecutor
+	}
+	if maxWorkers <= 0 {
+		panic("max workers must > 0")
+	}
 	return &workerPool{
-		Exec:                  executor,
-		MaxWorkersCount:       maxWorkers,
-		MaxIdleWorkerDuration: maxIdleTime,
-		notifyStateChange:     listener,
+		executorFunc:          executor,
+		maxWorkersCount:       maxWorkers,
+		maxIdleWorkerDuration: maxIdleTime,
+		rejectedStrategy:      rejectStrategy,
 	}
 }
 
 type worker struct {
 	lastUseTime time.Time
-	queue       chan Task
+	queue       chan Task // task queue
 }
 
 func (pool *workerPool) Start() {
 	if pool.stopCh != nil {
-		panic("BUG: workerPool already started")
+		panic("workerPool already started")
 	}
 	pool.stopCh = make(chan struct{})
 	stopCh := pool.stopCh
+
+	// start an goroutine for cleaning invalid workers
 	go func() {
 		var workers []*worker
 		for {
@@ -116,6 +113,29 @@ func (pool *workerPool) Start() {
 	}()
 }
 
+func (pool *workerPool) Submit(t Task) error {
+	worker := pool.getWorker()
+	if worker == nil {
+		switch pool.rejectedStrategy {
+		case RejectWhenNoWorker:
+			return errNoWorkerAvailable
+		case BlockWhenNoWorker:
+			for {
+				worker = pool.getWorker()
+				if worker != nil {
+					break
+				}
+			}
+		}
+	}
+	pool.wg.Add(1)
+	worker.queue <- t
+
+	return nil
+}
+
+// Stop the pool right now
+// Does not wait for actively executing tasks to terminate
 func (pool *workerPool) Stop() {
 	if pool.stopCh == nil {
 		panic("workerPool wasn't started")
@@ -137,11 +157,18 @@ func (pool *workerPool) Stop() {
 	pool.lock.Unlock()
 }
 
+// Stop when all tasks stopped
+// Blocks until all tasks have completed execution.
+func (pool *workerPool) WaitAndStop() {
+	pool.wg.Wait()
+	pool.Stop()
+}
+
 func (pool *workerPool) getMaxIdleWorkerDuration() time.Duration {
-	if pool.MaxIdleWorkerDuration <= 0 {
+	if pool.maxIdleWorkerDuration <= 0 {
 		return 10 * time.Second
 	}
-	return pool.MaxIdleWorkerDuration
+	return pool.maxIdleWorkerDuration
 }
 
 func (pool *workerPool) clean(invalidWorkers *[]*worker) {
@@ -179,25 +206,16 @@ func (pool *workerPool) clean(invalidWorkers *[]*worker) {
 	}
 }
 
-func (pool *workerPool) Submit(t Task) bool {
-	worker := pool.getWorker()
-	if worker == nil {
-		return false
-	}
-	worker.queue <- t
-	pool.notifyStateChange(t, StateNew)
-	return true
-}
-
 func (pool *workerPool) getWorker() *worker {
+	pool.lock.Lock()
+	defer pool.lock.Unlock()
 	var w *worker
 	createWorker := false
 
-	pool.lock.Lock()
 	workers := pool.availableWorkers
 	n := len(workers) - 1
 	if n < 0 {
-		if pool.workersCount < pool.MaxWorkersCount {
+		if pool.workersCount < pool.maxWorkersCount {
 			createWorker = true
 			pool.workersCount++
 		}
@@ -206,22 +224,22 @@ func (pool *workerPool) getWorker() *worker {
 		workers[n] = nil
 		pool.availableWorkers = workers[:n]
 	}
-	pool.lock.Unlock()
+	//pool.lock.Unlock()
 
 	if w == nil {
 		if !createWorker {
 			return nil
 		}
-		vch := pool.workersPool.Get()
-		if vch == nil {
-			vch = &worker{
+		pooledWorker := pool.innerWorkersPool.Get()
+		if pooledWorker == nil {
+			pooledWorker = &worker{
 				queue: make(chan Task, workerChanCap),
 			}
 		}
-		w = vch.(*worker)
+		w = pooledWorker.(*worker)
 		go func() {
 			pool.exec(w)
-			pool.workersPool.Put(vch)
+			pool.innerWorkersPool.Put(pooledWorker)
 		}()
 	}
 	return w
@@ -246,14 +264,12 @@ func (pool *workerPool) exec(worker *worker) {
 		if task == nil {
 			break
 		}
-		pool.notifyStateChange(task, StateRunning)
-		if err = pool.Exec(task); err != nil {
-			if pool.LogAllErrors {
-				fmt.Printf("error when serving runnable %s", err.Error())
+		if err = pool.executorFunc(task); err != nil {
+			if pool.logAllErrors {
+				fmt.Printf("error when executing task %s", err.Error())
 			}
 		}
-		task.Stop()
-		pool.notifyStateChange(task, StateStopped)
+		pool.wg.Done()
 		task = nil
 		if !pool.release(worker) {
 			break
