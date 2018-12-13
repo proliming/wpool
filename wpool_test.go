@@ -24,7 +24,7 @@ func TestWorkerPool_Submit(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		p.Submit(&myTask{i})
 	}
-	p.WaitAndStop()
+	p.WaitThenStop()
 	//p.Stop()
 }
 
@@ -38,7 +38,7 @@ func BenchmarkWorkerPool_SubmitOneWorkerNoIdleOneCPU(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		p.Submit(&myTask{num: i})
 	}
-	p.WaitAndStop()
+	p.WaitThenStop()
 }
 func BenchmarkWorkerPool_SubmitOneWorkerNoIdleMoreCPU(b *testing.B) {
 	n := runtime.GOMAXPROCS(runtime.NumCPU())
@@ -50,7 +50,7 @@ func BenchmarkWorkerPool_SubmitOneWorkerNoIdleMoreCPU(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		p.Submit(&myTask{num: i})
 	}
-	p.WaitAndStop()
+	p.WaitThenStop()
 }
 
 func BenchmarkWorkerPool_Submit16WorkerNoIdleOneCPU(b *testing.B) {
@@ -63,7 +63,7 @@ func BenchmarkWorkerPool_Submit16WorkerNoIdleOneCPU(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		p.Submit(&myTask{num: i})
 	}
-	p.WaitAndStop()
+	p.WaitThenStop()
 }
 func BenchmarkWorkerPool_Submit1024WorkerNoIdleOneCPU(b *testing.B) {
 	n := runtime.GOMAXPROCS(1)
@@ -75,7 +75,7 @@ func BenchmarkWorkerPool_Submit1024WorkerNoIdleOneCPU(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		p.Submit(&myTask{num: i})
 	}
-	p.WaitAndStop()
+	p.WaitThenStop()
 }
 
 func BenchmarkWorkerPool_Submit16WorkerNoIdleMoreCPU(b *testing.B) {
@@ -88,7 +88,7 @@ func BenchmarkWorkerPool_Submit16WorkerNoIdleMoreCPU(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		p.Submit(&myTask{num: i})
 	}
-	p.WaitAndStop()
+	p.WaitThenStop()
 }
 
 func BenchmarkWorkerPool_Submit1024WorkerNoIdleMoreCPU(b *testing.B) {
@@ -101,5 +101,5 @@ func BenchmarkWorkerPool_Submit1024WorkerNoIdleMoreCPU(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		p.Submit(&myTask{num: i})
 	}
-	p.WaitAndStop()
+	p.WaitThenStop()
 }

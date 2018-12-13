@@ -158,7 +158,7 @@ func (pool *workerPool) Stop() {
 
 // Stop when all tasks stopped
 // Blocks until all tasks have completed execution.
-func (pool *workerPool) WaitAndStop() {
+func (pool *workerPool) WaitThenStop() {
 	pool.wg.Wait()
 	pool.Stop()
 }
