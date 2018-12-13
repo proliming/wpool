@@ -34,3 +34,31 @@ p.Submit(&myTask{})
 p.WaitThenStop()
 
 ```
+Custom workPool
+
+```go
+func NewWith(executor Executor, maxWorkers int, maxIdleTime time.Duration, rejectStrategy RejectedStrategy) *workerPool {
+	if executor == nil {
+		executor = directExecutor
+	}
+	if maxWorkers <= 0 {
+		panic("max workers must > 0")
+	}
+	return &workerPool{
+		executorFunc:          executor,
+		maxWorkersCount:       maxWorkers,
+		maxIdleWorkerDuration: maxIdleTime,
+		rejectedStrategy:      rejectStrategy,
+	}
+}
+
+func myExecutor(r Task) error {
+	return r.Run()
+}
+
+p:=wpool.NewWith(myExecutor, 1024, math.MaxInt64*time.Nanosecond, wpool.BlockWhenNoWorker)
+p.Start()
+p.Submit(...)
+p.Stop()
+
+```
