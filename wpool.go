@@ -45,10 +45,8 @@ type Task interface {
 	Run() error
 }
 
-// workerPool serves incoming Task via a pool of workers
-// in FILO order, i.e. the most recently stopped worker will serve the next
-// incoming connection.
-//
+// workerPool serves incoming Task via a pool of workers in FILO order
+// The most recently stopped worker will serve the next Task.
 // Such a scheme keeps CPU caches hot (in theory).
 type workerPool struct {
 	rejectedStrategy      RejectedStrategy
@@ -65,11 +63,18 @@ type workerPool struct {
 	wg                    sync.WaitGroup
 }
 
+// A worker hold a queue of Task
+type worker struct {
+	lastUseTime time.Time
+	queue       chan Task // task queue
+}
+
 // Create a default worker pool
 func New() *workerPool {
 	return NewWith(directExecutor, defaultMaxWorkersCount, defaultMaxIdleWorkerDuration, BlockWhenNoWorker)
 }
 
+// Create with custom parameters
 func NewWith(executor Executor, maxWorkers int, maxIdleTime time.Duration, rejectStrategy RejectedStrategy) *workerPool {
 	if executor == nil {
 		executor = directExecutor
@@ -83,11 +88,6 @@ func NewWith(executor Executor, maxWorkers int, maxIdleTime time.Duration, rejec
 		maxIdleWorkerDuration: maxIdleTime,
 		rejectedStrategy:      rejectStrategy,
 	}
-}
-
-type worker struct {
-	lastUseTime time.Time
-	queue       chan Task // task queue
 }
 
 func (pool *workerPool) Start() {
@@ -112,6 +112,8 @@ func (pool *workerPool) Start() {
 	}()
 }
 
+// Submit an Task
+// The caller goroutine will blocking or got an error when there is no workers available
 func (pool *workerPool) Submit(t Task) error {
 	worker := pool.getWorker()
 	if worker == nil {
@@ -129,7 +131,6 @@ func (pool *workerPool) Submit(t Task) error {
 	}
 	pool.wg.Add(1)
 	worker.queue <- t
-
 	return nil
 }
 
@@ -142,9 +143,9 @@ func (pool *workerPool) Stop() {
 	close(pool.stopCh)
 	pool.stopCh = nil
 
-	// Stop all the workers waiting for incoming connections.
+	// Stop all the workers waiting for incoming Tasks.
 	// Do not wait for busy workers - they will stop after
-	// serving the connection and noticing pool.mustStop = true.
+	// executing the Task and noticing pool.mustStop = true.
 	pool.lock.Lock()
 	workers := pool.availableWorkers
 	for i, w := range workers {
@@ -173,7 +174,7 @@ func (pool *workerPool) getMaxIdleWorkerDuration() time.Duration {
 func (pool *workerPool) clean(invalidWorkers *[]*worker) {
 	maxIdleWorkerDuration := pool.getMaxIdleWorkerDuration()
 
-	// Clean least recently used workers if they didn't serve connections
+	// Clean least recently used workers if they didn't executes Task
 	// for more than maxIdleWorkerDuration.
 	currentTime := time.Now()
 
@@ -206,11 +207,10 @@ func (pool *workerPool) clean(invalidWorkers *[]*worker) {
 }
 
 func (pool *workerPool) getWorker() *worker {
-	pool.lock.Lock()
-	defer pool.lock.Unlock()
 	var w *worker
 	createWorker := false
 
+	pool.lock.Lock()
 	workers := pool.availableWorkers
 	n := len(workers) - 1
 	if n < 0 {
@@ -223,7 +223,7 @@ func (pool *workerPool) getWorker() *worker {
 		workers[n] = nil
 		pool.availableWorkers = workers[:n]
 	}
-	//pool.lock.Unlock()
+	pool.lock.Unlock()
 
 	if w == nil {
 		if !createWorker {
