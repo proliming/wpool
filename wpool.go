@@ -14,7 +14,7 @@ var errNoWorkerAvailable = errors.New("no worker available for now")
 type RejectedStrategy int
 
 const (
-	BlockWhenNoWorker RejectedStrategy = iota
+	BlockWhenNoWorker RejectedStrategy = iota // block
 	RejectWhenNoWorker
 )
 
@@ -112,8 +112,8 @@ func (pool *workerPool) Start() {
 	}()
 }
 
-// Submit an Task
-// The caller goroutine will blocking or got an error when there is no workers available
+// Submit a Task
+// The caller goroutine will blocking or got an error when there are no workers available
 func (pool *workerPool) Submit(t Task) error {
 	worker := pool.getWorker()
 	if worker == nil {
